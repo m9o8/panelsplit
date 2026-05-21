@@ -174,18 +174,32 @@ class PanelSplit:
 
         self.train_test_splits = self._temporal_splits
         if self._groups is not None:
-            try:
-                self.train_test_splits = self._compute_spatio_temporal_splits(
-                    X=None, y=None
+            self._is_independent_splitter = any(
+                cls.__name__ in (
+                    "GroupKFold",
+                    "LeaveOneGroupOut",
+                    "LeavePGroupsOut",
+                    "GroupShuffleSplit",
                 )
-                self._cached_X = None
-                self._cached_y = None
-                self._cached_splits = self.train_test_splits
-            except Exception as e:
-                warnings.warn(
-                    f"Could not cleanly pre-generate spatial splits in __init__: {e}. Passing X and y to split() natively at runtime."
-                )
+                for cls in self._group_splitter.__class__.__mro__
+            )
+            if self._is_independent_splitter:
+                try:
+                    self.train_test_splits = self._compute_spatio_temporal_splits(
+                        X=None, y=None
+                    )
+                    self._cached_X = None
+                    self._cached_y = None
+                    self._cached_splits = self.train_test_splits
+                except Exception as e:
+                    warnings.warn(
+                        f"Could not cleanly pre-generate spatial splits in __init__: {e}. Passing X and y to split() natively at runtime."
+                    )
+                    self.train_test_splits = []
+            else:
                 self.train_test_splits = []
+        else:
+            self._is_independent_splitter = True
 
     def _split_unique_periods(self, indices: Any, unique_periods: NDArray) -> CVIndices:
         """
@@ -334,16 +348,7 @@ class PanelSplit:
 
         # If the splitter does not depend on X/y (e.g. GroupKFold, LeaveOneGroupOut)
         # and we already pre-generated splits, we can return them immediately.
-        is_independent = any(
-            cls.__name__ in (
-                "GroupKFold",
-                "LeaveOneGroupOut",
-                "LeavePGroupsOut",
-                "GroupShuffleSplit",
-            )
-            for cls in self._group_splitter.__class__.__mro__
-        )
-        if is_independent and self._cached_splits is not None:
+        if self._is_independent_splitter and self._cached_splits is not None:
             return self._cached_splits
 
         # Check if we have cached spatio-temporal splits for the exact same X and y inputs
